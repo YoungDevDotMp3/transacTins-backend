@@ -1,31 +1,62 @@
+import { getCustomRepository, getRepository } from 'typeorm';
+import AppError from '../errors/AppError';
 import TransactionsRepository from '../repositories/TransactionsRepository';
 import Transaction from '../models/Transaction';
+import Category from '../models/Category';
 
 interface Request {
   title: string;
   value: number;
   type: 'income' | 'outcome';
+  category: string;
 }
 
 class CreateTransactionService {
-  private transactionsRepository: TransactionsRepository;
+  public async execute({
+    title,
+    value,
+    type,
+    category,
+  }: Request): Promise<Transaction> {
+    const transactionsRepository = getCustomRepository(TransactionsRepository);
 
-  constructor(transactionsRepository: TransactionsRepository) {
-    this.transactionsRepository = transactionsRepository;
-  }
-
-  public execute({ title, value, type }: Request): Transaction {
-    const balance = this.transactionsRepository.getBalance();
     if (type === 'outcome') {
-      if (balance.total - value < 0) {
-        throw Error('Não extrapola viado');
-      }
+      const { total } = await transactionsRepository.getBalance();
+      if (value > total)
+        throw new AppError(
+          'not be able to create outcome transaction without a valid balance',
+          400,
+        );
     }
-    if (type !== 'income' && type !== 'outcome') {
-      throw Error('Tem de ser income ou outcome vei!');
+
+    const categoryRepository = getRepository(Category);
+
+    const categoryExistsWithTitle = await categoryRepository.findOne({
+      where: { title: category },
+    });
+
+    let categoryCreated = null;
+
+    if (!categoryExistsWithTitle) {
+      categoryCreated = await categoryRepository.create({
+        title: category,
+      });
+
+      await categoryRepository.save(categoryCreated);
     }
-    const trans = this.transactionsRepository.create({ title, value, type });
-    return trans;
+
+    const transaction = await transactionsRepository.create({
+      title,
+      value,
+      type,
+      category_id:
+        (categoryExistsWithTitle && categoryExistsWithTitle.id) ||
+        categoryCreated?.id,
+    });
+
+    await transactionsRepository.save(transaction);
+
+    return transaction;
   }
 }
 

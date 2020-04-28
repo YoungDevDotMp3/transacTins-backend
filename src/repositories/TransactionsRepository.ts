@@ -1,3 +1,5 @@
+import { EntityRepository, Repository } from 'typeorm';
+
 import Transaction from '../models/Transaction';
 
 interface Balance {
@@ -6,39 +8,47 @@ interface Balance {
   total: number;
 }
 
-interface CreatTransactionsDTO {
-  title: string;
-  value: number;
-  type: 'income' | 'outcome';
+enum Type {
+  INCOME = 'income',
+  OUTCOME = 'outcome',
 }
 
-class TransactionsRepository {
-  private transactions: Transaction[];
+interface TypeDTO {
+  income: number;
+  outcome: number;
+}
 
-  constructor() {
-    this.transactions = [];
+@EntityRepository(Transaction)
+class TransactionsRepository extends Repository<Transaction> {
+  private calculateBalance(transactions: Array<Transaction>): TypeDTO {
+    return transactions.reduce(
+      (accumulator, transaction) => {
+        switch (transaction.type) {
+          case Type.INCOME:
+            accumulator.income += Number(transaction.value);
+            break;
+          case Type.OUTCOME:
+            accumulator.outcome += Number(transaction.value);
+            break;
+          default:
+            break;
+        }
+
+        return accumulator;
+      },
+      { income: 0, outcome: 0 },
+    );
   }
 
-  public all(): Transaction[] {
-    return this.transactions;
-  }
+  public async getBalance(): Promise<Balance> {
+    const transactions = await this.find();
 
-  public getBalance(): Balance {
-    const income = this.transactions
-      .filter(trans => trans.type === 'income')
-      .reduce((a: number, b: Transaction) => a + b.value, 0);
-    const outcome = this.transactions
-      .filter(trans => trans.type === 'outcome')
-      .reduce((a: number, b: Transaction) => a + b.value, 0);
+    const { income, outcome } = this.calculateBalance(transactions);
     const total = income - outcome;
-    const balance = { income, outcome, total };
-    return balance;
-  }
 
-  public create({ title, value, type }: CreatTransactionsDTO): Transaction {
-    const trans = new Transaction({ title, value, type });
-    this.transactions.push(trans);
-    return trans;
+    const balance: Balance = { income, outcome, total };
+
+    return balance;
   }
 }
 
